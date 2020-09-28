@@ -129,6 +129,17 @@ def get_common_argument_parser():
         type=str,
         help="Path to the root directory of the selected dataset. ")
 
+    # FOR VALIDATION ENABLING PURPOSES ONLY
+    parser.add_argument(
+        "--img_for_ref_output_dump",
+        type=str,
+        help="Path to an image to be run through the network. The network's outputs will be dumped using numpy.save"
+             "to a file with the same base name, but a .ref.npy extension, i.e. `--img_for_ref_output_dump "
+             "my_image.jpg` will produce a `my_image.ref.npy` output file. The image will be loaded AS IS using"
+             "PIL.open; only the ToTensor torchvision transform will be applied to produce a tensor with values in"
+             "the [0, 1] range, no other preprocessing will be done."
+    )
+
     # Settings
     parser.add_argument(
         '-j', '--workers',

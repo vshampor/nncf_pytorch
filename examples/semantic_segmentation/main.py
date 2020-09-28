@@ -39,7 +39,7 @@ from nncf.initialization import register_default_init_args
 from examples.common.model_loader import load_model
 from examples.common.optimizer import make_optimizer
 from examples.common.utils import configure_logging, configure_paths, make_additional_checkpoints, print_args, \
-    write_metrics, print_statistics, is_pretrained_model_requested
+    write_metrics, print_statistics, is_pretrained_model_requested, run_image_and_dump_output
 from examples.semantic_segmentation.metric import IoU
 from examples.semantic_segmentation.test import Test
 from examples.semantic_segmentation.train import Train
@@ -502,6 +502,10 @@ def main_worker(current_gpu, config):
     if config.to_onnx:
         compression_ctrl.export_model(config.to_onnx)
         logger.info("Saved to {}".format(config.to_onnx))
+        return
+
+    if config.img_for_ref_output_dump is not None:
+        run_image_and_dump_output(config.img_for_ref_output_dump, model, config)
         return
 
     if config.mode.lower() == 'test':

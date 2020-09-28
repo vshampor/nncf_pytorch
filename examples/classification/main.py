@@ -42,7 +42,7 @@ from examples.common.optimizer import get_parameter_groups, make_optimizer
 from examples.common.sample_config import SampleConfig, create_sample_config
 from examples.common.utils import configure_logging, configure_paths, create_code_snapshot, \
     print_args, make_additional_checkpoints, get_name, is_staged_quantization, print_statistics, \
-    is_pretrained_model_requested
+    is_pretrained_model_requested, run_image_and_dump_output
 from examples.common.utils import write_metrics
 from nncf import create_compressed_model
 from nncf.compression_method_api import CompressionLevel
@@ -183,6 +183,10 @@ def main_worker(current_gpu, config: SampleConfig):
     if config.execution_mode != ExecutionMode.CPU_ONLY:
         cudnn.benchmark = True
 
+    if config.img_for_ref_output_dump is not None:
+        run_image_and_dump_output(config.img_for_ref_output_dump, model, config)
+        return
+
     if config.mode.lower() == 'test':
         print_statistics(compression_ctrl.statistics())
         validate(val_loader, model, criterion, config)
@@ -281,6 +285,8 @@ def create_cifar(config, dataset_config, is_train, transform):
 
 
 def create_datasets(config):
+    if config.img_for_ref_output_dump is not None:
+        return None, None
     dataset_config = config.dataset if config.dataset is not None else 'imagenet'
     dataset_config = dataset_config.lower()
     assert dataset_config in ['imagenet', 'cifar100', 'cifar10'], "Unknown dataset option"
@@ -320,6 +326,8 @@ def create_datasets(config):
 
 
 def create_data_loaders(config, train_dataset, val_dataset):
+    if config.img_for_ref_output_dump is not None:
+        return None, None, None
     pin_memory = config.execution_mode != ExecutionMode.CPU_ONLY
 
     # When using a single GPU per process and per

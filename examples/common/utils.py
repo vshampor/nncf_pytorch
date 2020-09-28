@@ -23,6 +23,8 @@ import os
 import tarfile
 from shutil import copyfile
 
+import torch
+
 from examples.common.sample_config import SampleConfig
 from tensorboardX import SummaryWriter
 from texttable import Texttable
@@ -187,3 +189,21 @@ def print_statistics(stats, logger=default_logger):
 
 def is_pretrained_model_requested(config: SampleConfig) -> bool:
     return config.get('pretrained', True) if config.get('weights') is None else False
+
+
+def run_image_and_dump_output(img_path: str, model: torch.nn.Module, config: SampleConfig):
+    from PIL import Image
+    from torchvision.transforms import ToTensor
+    from pathlib import Path
+    import numpy as np
+
+    img_path = Path(img_path)
+    assert img_path.is_file()
+
+    img = Image.open(img_path)
+    img_tensor = ToTensor()(img).to(config.device)
+    img_tensor.unsqueeze_(0)
+    model.eval()
+    inference_result = model(img_tensor)
+    ref_dump_path = img_path.with_suffix('.ref')
+    np.save(ref_dump_path, inference_result.detach().cpu().numpy())
