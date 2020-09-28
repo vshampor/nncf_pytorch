@@ -148,7 +148,7 @@ class ExportQuantizeToONNXQuantDequant(torch.autograd.Function):
 
 def get_scale_zp_from_input_low_input_high(level_low, level_high, input_low, input_high):
     levels = level_high - level_low + 1
-    assert levels in [255, 256], "Can only export to INT8 256-level ONNX Quantize/Dequantize pairs"
+    assert levels in [256], "Can only export to INT8 256-level ONNX Quantize/Dequantize pairs"
 
     y_scale = (input_high - input_low) / (level_high - level_low)
     y_zero_point = (level_low * input_high - level_high * input_low) / (input_high - input_low)

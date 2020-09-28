@@ -251,14 +251,10 @@ class SymmetricQuantizer(BaseQuantizer):
         if signed:
             level_high = 2 ** (num_bits - 1) - 1
             level_low = -(level_high + 1)
-            if is_weights:
-                level_low += 1
         else:
             level_high = 2 ** num_bits - 1
             level_low = 0
         levels = 2 ** num_bits
-        if is_weights:
-            levels -= 1
         return level_high, level_low, levels
 
     @property
