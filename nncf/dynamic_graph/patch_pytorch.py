@@ -86,14 +86,24 @@ class PatchedOperatorInfo:
         self.custom_trace_fn = custom_trace_fn
 
 
-def register_operator(name=None):
-    def wrap(operator):
-        op_name = name
-        if op_name is None:
-            op_name = operator.__name__
-        return wrap_operator(operator, PatchedOperatorInfo(op_name))
+class register_operator:
+    def __init__(self, name=None, trait=None):
+        self._name = name
+        from nncf.quantization.quantizer_propagation import QuantizationTrait
+        if trait is None:
+            self._trait = QuantizationTrait.INPUTS_QUANTIZABLE
+        else:
+            self._trait = trait
 
-    return wrap
+    def __call__(self, operator):
+        from nncf.dynamic_graph.operator_metatypes import OperatorMetatype, OPERATOR_METATYPES
+        if self._name is None:
+            self._name = operator.__name__
+        user_metatype = type('UserMetatype_' + self._name, (OperatorMetatype,))  # type: OperatorMetatype
+        user_metatype.external_op_names = []
+
+        OPERATOR_METATYPES.register()(user_metatype)
+        return wrap_operator(operator, PatchedOperatorInfo(self._name))
 
     # TODO: Use same wrapper for model.forward() calls
 
