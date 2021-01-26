@@ -11,6 +11,7 @@
  limitations under the License.
 """
 from collections import OrderedDict
+from pathlib import Path
 from typing import Dict, Callable, Any, Mapping, Sequence, Set, List, Union
 
 import numpy as np
@@ -383,3 +384,12 @@ def compute_FLOPs_hook(module, input_, output, dict_to_save, ctx: 'TracingContex
 def add_domain(name_operator: str) -> str:
     from nncf.compression_method_api import DOMAIN_CUSTOM_OPS_NAME
     return DOMAIN_CUSTOM_OPS_NAME + "::" + name_operator
+
+
+@contextmanager
+def safe_open(file: Path, *args, **kwargs):
+    # For security reasons, should not follow symlinks.
+    if file.is_symlink():
+        raise RuntimeError("File {} is a symbolic link, aborting.".format(str(file)))
+    with open(str(file), *args, **kwargs) as f:
+        yield f
