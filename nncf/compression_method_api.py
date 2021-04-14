@@ -25,6 +25,7 @@ import torch
 from pkg_resources import parse_version
 from torch import nn
 
+from nncf import EXPORT_ONNX_OPSET_VERSION
 from nncf.config import NNCFConfig
 from nncf.dynamic_graph.graph_tracer import create_mock_tensor
 from nncf.graph.transformations.layout import PTTransformationLayout
@@ -176,15 +177,11 @@ class PTCompressionAlgorithmController(CompressionAlgorithmController):
         with torch.no_grad():
             # Should call this, otherwise the operations executed during export will end up in graph
             model.disable_dynamic_graph_building()
-            if get_torch_version_tuple() < (1, 8, 0):
-                opset_version = 10
-            else:
-                opset_version = 13
             torch.onnx.export(model, tuple(input_tensor_list),
                               save_path, input_names=input_names,
                               output_names=output_names,
                               enable_onnx_checker=False,
-                              opset_version=opset_version,
+                              opset_version=EXPORT_ONNX_OPSET_VERSION,
                               training=True)  # Do not fuse Conv+BN in ONNX. May cause dropout nodes to appear in ONNX
             model.enable_dynamic_graph_building()
         model.forward = original_forward

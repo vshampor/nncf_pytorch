@@ -22,6 +22,7 @@ import torch
 import torch.nn as nn
 from torch import distributed
 
+from nncf import EXPORT_ONNX_OPSET_VERSION
 from nncf.checkpoint_loading import OPTIONAL_PARAMETERS_REGISTRY
 from nncf.common.quantization.structs import QuantizationMode
 from nncf.common.quantization.structs import QuantizerConfig
@@ -250,18 +251,21 @@ class BaseQuantizer(nn.Module):
             x, y_scale, y_zero_point, per_channel_idx = self._prepare_qdq_export_quantization(x)
 
             if self.per_channel:
-                if get_torch_version_tuple() < (1, 8, 0):
+                if EXPORT_ONNX_OPSET_VERSION < 13:
                     if torch.allclose(y_scale - y_scale[0], torch.zeros_like(y_scale)) and \
                             torch.allclose(y_zero_point - y_zero_point[0], torch.zeros_like(y_zero_point)):
                         y_scale, y_zero_point = y_scale[0], y_zero_point[0]
                         nncf_logger.warning("Exporting a per-channel quantizers with identical per-channel scales"
                                             "as per-tensor QuantizeLinear-DequantizeLinear pair to work around ONNX "
-                                            "opset 10 limitations")
+                                            "opset <13 limitations")
                         return ExportQuantizeToONNXQuantDequant.apply(x, y_scale, y_zero_point)
                     raise RuntimeError(
                         "PyTorch export to ONNX using QuantizeLinear-DequantizeLinear "
                         "doesn't support per channel quantization in torch version {}".format(
                             torch.__version__))
+                assert per_channel_idx is not None
+            else:
+                per_channel_idx = None
 
             return ExportQuantizeToONNXQuantDequant.apply(x, y_scale, y_zero_point, per_channel_idx)
         raise RuntimeError('Unknown export mode')
@@ -468,11 +472,7 @@ class SymmetricQuantizer(BaseQuantizer):
             level_low = self.level_low
             level_high = self.level_high
             if self._half_range:
-                if self.scale_shape[0] > 1:
-                    for i in range(self.scale_shape[0]):
-                        x[i] = torch.clamp(x[i], min=input_low[i].item(), max=input_high[i].item())
-                else:
-                    x.data = torch.clamp(x, min=input_low.item(), max=input_high.item())
+                x = torch.min(torch.max(x, input_low), input_high)
                 level_low = 2 * self.level_low
                 level_high = 2 * self.level_high + 1
                 input_low, input_high = self._get_input_low_input_high(level_high / self.level_high * self.scale,
@@ -607,11 +607,7 @@ class AsymmetricQuantizer(BaseQuantizer):
             level_low = self.level_low
             level_high = self.level_high
             if self._half_range:
-                if self.scale_shape[0] > 1:
-                    for i in range(self.scale_shape[0]):
-                        x[i] = torch.clamp(x[i], min=input_low[i].item(), max=input_high[i].item())
-                else:
-                    x.data = torch.clamp(x, min=input_low.item(), max=input_high.item())
+                x = torch.min(torch.max(x, input_low), input_high)
                 level_low = 2 * level_low
                 level_high = 2 * level_high + 1
                 input_low, input_high = self._get_input_low_input_high(level_high / self.level_high * self.input_range,
