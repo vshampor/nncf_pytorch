@@ -22,6 +22,7 @@ from functools import partial
 from typing import List, Tuple, Optional, TypeVar, Dict
 
 import torch
+from pkg_resources import parse_version
 from torch import nn
 
 from nncf.config import NNCFConfig
@@ -33,6 +34,7 @@ from nncf.common.utils.logger import logger as nncf_logger
 from nncf.nncf_network import NNCFNetwork
 from nncf.nncf_network import PTModelTransformer
 from nncf.structures import BNAdaptationInitArgs
+from nncf.utils import get_torch_version_tuple
 from nncf.utils import should_consider_scope
 from nncf.api.compression import CompressionAlgorithmBuilder
 from nncf.api.compression import CompressionAlgorithmController
@@ -174,11 +176,15 @@ class PTCompressionAlgorithmController(CompressionAlgorithmController):
         with torch.no_grad():
             # Should call this, otherwise the operations executed during export will end up in graph
             model.disable_dynamic_graph_building()
+            if get_torch_version_tuple() < (1, 8, 0):
+                opset_version = 10
+            else:
+                opset_version = 13
             torch.onnx.export(model, tuple(input_tensor_list),
                               save_path, input_names=input_names,
                               output_names=output_names,
                               enable_onnx_checker=False,
-                              opset_version=10,
+                              opset_version=opset_version,
                               training=True)  # Do not fuse Conv+BN in ONNX. May cause dropout nodes to appear in ONNX
             model.enable_dynamic_graph_building()
         model.forward = original_forward
