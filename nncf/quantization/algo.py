@@ -31,6 +31,7 @@ from torch import nn
 from nncf.algo_selector import COMPRESSION_ALGORITHMS
 from nncf.algo_selector import ZeroCompressionLoss
 from nncf.api.compression import CompressionLevel
+from nncf.common.experimental_statistics import QuantizationStatistics
 from nncf.common.graph.graph import MODEL_INPUT_OP_NAME
 from nncf.common.graph.transformations.commands import TargetType
 from nncf.api.compression import CompressionLoss
@@ -1335,16 +1336,22 @@ class QuantizationController(QuantizationControllerBase):
 
         return module_init_range_config
 
-    def statistics(self, quickly_collected_only=False):
-        stats = super().statistics(quickly_collected_only)
+    def statistics(self, quickly_collected_only=False) -> QuantizationStatistics:
+        stats = QuantizationStatistics()
         num_enabled_quantization = len([1 for q in self.all_quantizations.values() if q.is_enabled_quantization()])
         multiplier = 100 / len(self.all_quantizations)
-        stats["ratio_of_enabled_quantizations"] = num_enabled_quantization * multiplier
+        stats.ratio_of_enabled_quantizations = num_enabled_quantization * multiplier
+
         if self._collect_compression_metrics and not quickly_collected_only:
             self.update_metric_store()
             for metric in self.metric_store.values():
-                for add_info, table in metric.items():
-                    stats[add_info] = table
+                # ...
+                # populate the rest of the stats fields in the same manner
+                # as above
+                # metric may be refactored to return grouping structs instead
+                # of the table-like data, delegate table drawing to the
+                # Statistics.print method
+                pass
         return stats
 
 

@@ -50,6 +50,7 @@ from nncf import create_compressed_model
 from nncf.api.compression import CompressionLevel
 from nncf.dynamic_graph.graph_tracer import create_input_infos
 from nncf.initialization import register_default_init_args, default_criterion_fn
+from nncf.quantization.algo import QuantizationController
 from nncf.utils import safe_thread_call, is_main_process
 from examples.classification.common import set_seed, load_resuming_checkpoint
 
@@ -157,7 +158,7 @@ def main_worker(current_gpu, config: SampleConfig):
     model.to(config.device)
 
     resuming_model_sd, resuming_checkpoint = load_resuming_checkpoint(resuming_checkpoint_path)
-    compression_ctrl, model = create_compressed_model(model, nncf_config, resuming_state_dict=resuming_model_sd)
+    compression_ctrl, model = create_compressed_model(model, nncf_config, resuming_state_dict=resuming_model_sd)  # type: QuantizationController, NNCFNetwork
 
     if config.to_onnx:
         compression_ctrl.export_model(config.to_onnx)
@@ -191,7 +192,16 @@ def main_worker(current_gpu, config: SampleConfig):
         cudnn.benchmark = True
 
     if is_main_process():
-        print_statistics(compression_ctrl.statistics())
+        if False:
+            # Can print everything in a default manner, with the default tables
+            print(compression_ctrl.statistics().print())
+        else:
+            # Or the user can draw his own table in the way he wants using only the stats he wants
+            # Autocomplete works! (Provided the compression_ctrl exact type is known)
+            print('+++++++++++++++++++++++++++++')
+            print('+ My Cool Table Entry: {}+'.format(
+                compression_ctrl.statistics().memory_share_stats.max_compressed_activation_size))
+            print('+++++++++++++++++++++++++++++')
 
     if config.mode.lower() == 'test':
         validate(val_loader, model, criterion, config)
@@ -374,7 +384,8 @@ def create_data_loaders(config, train_dataset, val_dataset):
     return train_loader, train_sampler, val_loader, init_loader
 
 
-def train_epoch(train_loader, model, criterion, criterion_fn, optimizer, compression_ctrl, epoch, config):
+def train_epoch(train_loader, model, criterion, criterion_fn, optimizer, compression_ctrl: QuantizationController,  # picking this concrete case for illustration
+                epoch, config):
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
@@ -453,9 +464,22 @@ def train_epoch(train_loader, model, criterion, criterion_fn, optimizer, compres
             config.tb.add_scalar("train/top1", top1.avg, i + global_step)
             config.tb.add_scalar("train/top5", top5.avg, i + global_step)
 
-            for stat_name, stat_value in compression_ctrl.statistics(quickly_collected_only=True).items():
-                if isinstance(stat_value, (int, float)):
-                    config.tb.add_scalar('train/statistics/{}'.format(stat_name), stat_value, i + global_step)
+            if False:
+                for stat_name, stat_value in compression_ctrl.statistics(
+                        quickly_collected_only=True).get_flat_statistics_dict().values():
+                    # Can dump everything to TB if we don't care
+                    if isinstance(stat_value, (int, float)):
+                        config.tb.add_scalar('train/statistics/{}'.format(stat_name), stat_value, i + global_step)
+            else:
+                # Or we can save some specific subset of stats and name these how we want
+                quant_stat = compression_ctrl.statistics(quickly_collected_only=True)
+                config.tb.add_scalar('Enabled quantizers ratio', quant_stat.ratio_of_enabled_quantizations)
+                if 4 not in quant_stat.quantization_share_stats.num_aq_per_bitwidth:
+                    four_bit_aqs = 0
+                else:
+                    four_bit_aqs = quant_stat.quantization_share_stats.num_aq_per_bitwidth[4]
+
+                config.tb.add_scalar('4-bit activation quantizers count', four_bit_aqs)
 
 
 def validate(val_loader, model, criterion, config):
