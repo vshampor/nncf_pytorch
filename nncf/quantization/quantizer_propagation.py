@@ -387,10 +387,12 @@ class QuantizerPropagationStateGraph(nx.DiGraph):
             prop_quantizer.affected_edges.add((from_node_key, to_node_key))
             edge[QuantizerPropagationStateGraph.AFFECTING_PROPAGATING_QUANTIZERS_ATTR].append(prop_quantizer)
             from_node = self.nodes[from_node_key]
-            node_propagating_quantizer = from_node[QuantizerPropagationStateGraph.PROPAGATING_QUANTIZER_NODE_ATTR]
-            if node_propagating_quantizer is not None:
-                surviving_quantizers = [node_propagating_quantizer]
-                break
+            from_node_type = from_node[QuantizerPropagationStateGraph.NODE_TYPE_NODE_ATTR]
+            if from_node_type is QuantizerPropagationStateGraphNodeType.INSERTION_POINT:
+                node_propagating_quantizer = from_node[QuantizerPropagationStateGraph.PROPAGATING_QUANTIZER_NODE_ATTR]
+                if node_propagating_quantizer is not None:
+                    surviving_quantizers = [node_propagating_quantizer]
+                    break
             node_affecting_quantizers = from_node[QuantizerPropagationStateGraph.AFFECTING_PROPAGATING_QUANTIZERS_ATTR]
             if node_affecting_quantizers:
                 surviving_quantizers = copy(node_affecting_quantizers)
@@ -435,11 +437,26 @@ class QuantizerPropagationStateGraph(nx.DiGraph):
     def merge_quantizers_for_branching_node(self, quantizers_to_merge: List[PropagatingQuantizer],
                                             merged_qconf_list: List[QuantizerConfig],
                                             branch_qconf_lists: List[Optional[List[QuantizerConfig]]],
-                                            branching_node_key: str):
-        assert self.nodes[branching_node_key][QuantizerPropagationStateGraph.NODE_TYPE_NODE_ATTR] == \
-               QuantizerPropagationStateGraphNodeType.INSERTION_POINT
+                                            branching_node_key: str) -> List[PropagatingQuantizer]:
+        # A branching node may currently be either a post-hook node, or an operator node if the
+        # corresponding operator does not support post-hooking (such as torch.chunk)
+        branching_node_type = self.nodes[branching_node_key][QuantizerPropagationStateGraph.NODE_TYPE_NODE_ATTR]
 
-        target_ip_node_key = branching_node_key
+        target_ip_node_keys = []
+        if branching_node_type == QuantizerPropagationStateGraphNodeType.INSERTION_POINT:
+            target_ip_node_keys.append(branching_node_key)
+        elif branching_node_type == QuantizerPropagationStateGraphNodeType.OPERATOR:
+            paths = self.get_paths_to_immediately_dominating_insertion_points(branching_node_key)
+            for path in paths:
+                assert len(path) == 1
+                edge_from_pre_hook_ip_to_op = path[0]
+                pre_hook_ip = edge_from_pre_hook_ip_to_op[0]
+                target_ip_node_keys.append(pre_hook_ip)
+        else:
+            raise RuntimeError("Unsupported branching QPSG node type: {}".format(branching_node_type))
+
+        if not target_ip_node_keys:
+            return []
 
         for idx, pq in enumerate(quantizers_to_merge):
             branch_qconf_list = branch_qconf_lists[idx]
@@ -447,15 +464,30 @@ class QuantizerPropagationStateGraph(nx.DiGraph):
                 pq.potential_quant_configs = branch_qconf_list
 
         if merged_qconf_list is None:
-            return None
-        merge_pq = PropagatingQuantizer(self._get_next_prop_quantizer_id(), merged_qconf_list,
-                                        target_ip_node_key)
-        merge_pq.last_accepting_location_node_key = target_ip_node_key
-        merge_pq.affected_ip_nodes.add(target_ip_node_key)
-        target_ip_node = self.nodes[target_ip_node_key]
-        assert target_ip_node[QuantizerPropagationStateGraph.PROPAGATING_QUANTIZER_NODE_ATTR] is None
-        target_ip_node[QuantizerPropagationStateGraph.PROPAGATING_QUANTIZER_NODE_ATTR] = merge_pq
-        target_ip_node[QuantizerPropagationStateGraph.AFFECTING_PROPAGATING_QUANTIZERS_ATTR].append(merge_pq)
+            return []
+
+        merge_pqs = []
+        for target_ip_node_key in target_ip_node_keys:
+            target_ip_node = self.nodes[target_ip_node_key]
+            target_ip = target_ip_node[QuantizerPropagationStateGraph.INSERTION_POINT_DATA_NODE_ATTR]
+            target_type = target_ip.target_type
+            if target_type is TargetType.OPERATOR_PRE_HOOK:
+                merge_pq = self.add_propagating_quantizer(merged_qconf_list,
+                                                          target_ip_node_key)
+            elif target_type is TargetType.OPERATOR_POST_HOOK:
+                merge_pq = PropagatingQuantizer(self._get_next_prop_quantizer_id(), merged_qconf_list,
+                                                target_ip_node_key)
+                merge_pq.last_accepting_location_node_key = target_ip_node_key
+                merge_pq.affected_ip_nodes.add(target_ip_node_key)
+
+                target_ip_node = self.nodes[target_ip_node_key]
+                assert target_ip_node[QuantizerPropagationStateGraph.PROPAGATING_QUANTIZER_NODE_ATTR] is None
+                target_ip_node[QuantizerPropagationStateGraph.PROPAGATING_QUANTIZER_NODE_ATTR] = merge_pq
+                target_ip_node[QuantizerPropagationStateGraph.AFFECTING_PROPAGATING_QUANTIZERS_ATTR].append(merge_pq)
+            else:
+                raise RuntimeError("Unsupported target type for merge PQ insertion: {}".format(target_type))
+
+            merge_pqs.append(merge_pq)
 
         unified_scale_gids_to_merge = set()
         for idx, pq in enumerate(quantizers_to_merge):
@@ -465,15 +497,16 @@ class QuantizerPropagationStateGraph(nx.DiGraph):
                 unified_scale_gids_to_merge.add(gid)
 
         if unified_scale_gids_to_merge:
-            merge_pq.unified_scale = True
-            merge_gid = self._unified_scale_group_manager.register_group({merge_pq})
+            for merge_pq in merge_pqs:
+                merge_pq.unified_scale = True
+            merge_gid = self._unified_scale_group_manager.register_group(set(merge_pqs))
             for gid_to_merge in unified_scale_gids_to_merge:
                 self._unified_scale_group_manager.merge_groups(merge_gid, gid_to_merge)
 
         for idx, pq in enumerate(quantizers_to_merge):
             branch_qconf_list = branch_qconf_lists[idx]
             if branch_qconf_list is None:
-                paths = list(nx.all_shortest_paths(self, target_ip_node_key, pq.current_location_node_key))
+                paths = list(nx.all_shortest_paths(self, branching_node_key, pq.current_location_node_key))
                 assert len(paths) == 1, "Ambiguous merge path!"
                 # merge_quantizer_into_path expects paths as lists of edges
                 path = paths[0]
@@ -485,13 +518,15 @@ class QuantizerPropagationStateGraph(nx.DiGraph):
                 self.merge_quantizer_into_path(pq, edge_path)
             else:
                 pq.potential_quant_configs = branch_qconf_list
-                merge_pq.downstream_propagating_quantizers.add(pq)
+                for merge_pq in merge_pqs:
+                    merge_pq.downstream_propagating_quantizers.add(pq)
 
             # The quantizer sink node set of the merge PQ should be set to the union of all
             # downstream quantizers regardless of whether the downstream PQ has been completely merged
-            merge_pq.quantized_input_sink_operator_nodes.update(pq.quantized_input_sink_operator_nodes)
+            for merge_pq in merge_pqs:
+                merge_pq.quantized_input_sink_operator_nodes.update(pq.quantized_input_sink_operator_nodes)
 
-        return merge_pq
+        return merge_pqs
 
     def get_predecessor_weight_as_outputs_node_keys(self, curr_node_key: str) -> List[str]:
         """For a given node key in this graph, returns node keys of all direct predecessors
@@ -1605,7 +1640,7 @@ class QuantizerPropagationSolver:
                                     "configurations found among the following: \n{}".format(
                     branching_node_key, all_confs))
 
-            merge_pq = quant_prop_graph.merge_quantizers_for_branching_node(waiting_pqs_list,
+            merge_pqs = quant_prop_graph.merge_quantizers_for_branching_node(waiting_pqs_list,
                                                                             merged_qconf_list,
                                                                             branch_qconf_lists,
                                                                             branching_node_key)
@@ -1616,7 +1651,7 @@ class QuantizerPropagationSolver:
                     unmerged_pqs.append(waiting_pqs_list[idx])
         else:
             nncf_logger.debug("Merge aborted for PQs {}".format(",".join([str(pq.id) for pq in waiting_pqs_list])))
-            merge_pq = None
+            merge_pqs = []
             unmerged_pqs = waiting_pqs_list
 
         queue_to_cull = list(reversed(self._active_propagating_quantizers_queue))
@@ -1631,8 +1666,8 @@ class QuantizerPropagationSolver:
             else:
                 self._active_propagating_quantizers_queue.appendleft(pq_from_queue)
 
-        if merge_pq is not None:
-            self._active_propagating_quantizers_queue.appendleft(merge_pq)
+        if merge_pqs:
+            self._active_propagating_quantizers_queue.extendleft(merge_pqs)
         self._quantizers_waiting_for_branch_merge.resolve_merged_node(branching_node_key)
 
     def propagation_step(self, curr_prop_quantizer: PropagatingQuantizer,
