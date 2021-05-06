@@ -137,10 +137,12 @@ class ProcessedKeys:
             if keys and (erroneous or is_missing and (is_resume or not are_all_loaded_params_matched)):
                 add_error_msg(key_status.value, keys)
         if error_msgs:
-            error_msg = 'Error(s) when loading model parameters:\n\t{}'.format("\n\t".join(error_msgs))
             if is_resume:
+                error_msg = 'Error(s) when loading model parameters:\n\t{}'.format("\n\t".join(error_msgs))
                 raise RuntimeError(error_msg)
-            nncf_logger.warning(error_msg)
+
+            warning_msg = "Could not load model parameters cleanly:\n\t{}".format("\n\t".join(error_msgs))
+            nncf_logger.warning(warning_msg)
 
 
 class KeyMatcher:
