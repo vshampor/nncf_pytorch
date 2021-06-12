@@ -10,9 +10,9 @@
  See the License for the specific language governing permissions and
  limitations under the License.
 """
+import os
 from typing import List
 
-import os
 import pytest
 import torch
 
@@ -41,7 +41,18 @@ class MultiBranchesModelDesc(GeneralModelDesc):
     def __init__(self, name: str):
         super().__init__(input_sample_sizes=[2, 3, 4, 4], model_name=name, model_builder=MultiBranchesModel)
         self._config = get_empty_config(input_sample_sizes=self.input_sample_sizes)
-        self._config_update = {'compression': {'algorithm': 'quantization'}}
+        self._config_update = {
+            'compression': {
+                'algorithm': 'quantization',
+                'scope_overrides': {
+                    'activations': {
+                        "MultiBranchesModel/NNCFConv2d[conv_a]/conv2d_0": {
+                            'per_channel': True
+                        }
+                    }
+                }
+            }
+        }
         self._hw_config = False
         self.custom_hw_config_dict = None
         self.propagation_strategy = PropagationStrategy.MERGE_WITH_SINGLE_FQ_RESULT
