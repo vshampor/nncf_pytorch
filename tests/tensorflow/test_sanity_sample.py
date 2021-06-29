@@ -207,6 +207,8 @@ def _case_common_dirs(tmp_path_factory):
 
 
 def test_model_eval(_config, tmp_path):
+    if _config['sample_type'] == 'segmentation':
+        pytest.skip("ticket #58759")
     config_factory = ConfigFactory(_config['nncf_config'], tmp_path / 'config.json')
     args = {
         '--mode': 'test',
@@ -221,6 +223,8 @@ def test_model_eval(_config, tmp_path):
 
 @pytest.mark.dependency(name='tf_test_model_train')
 def test_model_train(_config, tmp_path, _case_common_dirs):
+    if _config['sample_type'] == 'segmentation':
+        pytest.skip("ticket #58759")
     checkpoint_save_dir = os.path.join(_case_common_dirs['checkpoint_save_dir'], _config['tid'])
     config_factory = ConfigFactory(_config['nncf_config'], tmp_path / 'config.json')
     args = {
@@ -394,6 +398,8 @@ def get_prepare_checkpoint_configs():
                          get_prepare_checkpoint_configs(),
                          ids=[x[0] for x in get_prepare_checkpoint_configs()])
 def test_prepare_checkpoint(sample_type, config_path, config_eval, dataset_path, batch_size, tmp_path):
+    if sample_type == 'segmentation':
+        pytest.skip("ticket #58759")
     # Keep default soft_device_placement state
     default_soft_device_placement = tf.config.get_soft_device_placement()
     tf.config.set_soft_device_placement(True)
