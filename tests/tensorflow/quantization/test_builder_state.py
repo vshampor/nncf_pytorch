@@ -240,8 +240,8 @@ GROUND_TRUTH_STATE = {
                 "signedness_to_force": None
             },
             "target_point": {
-                "in_port": 0,
-                "instance_index": 0,
+                "input_port_id": 0,
+                "instance_idx": 0,
                 "layer_name": "dummy_str"
             },
             "target_point_class_name": "TFBeforeLayer"
@@ -257,9 +257,9 @@ GROUND_TRUTH_STATE = {
                 "signedness_to_force": None
             },
             "target_point": {
-                "instance_index": 0,
+                "instance_idx": 0,
                 "layer_name": "dummy_str",
-                "out_port": 0
+                "output_port_id": 0
             },
             "target_point_class_name": "TFAfterLayer"
         },
